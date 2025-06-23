@@ -34,3 +34,4 @@ if analyze:
         st.dataframe(styled_df)
     except Exception as e:
         st.error(f"Give me your Playlist URL!!! 👿")
+        st.error(e)

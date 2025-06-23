@@ -1,5 +1,6 @@
-.env
+.streamlit
 .cache
+.env
 
 /__pycache__
 /spotify-venv

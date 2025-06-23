@@ -1,15 +1,12 @@
-import os
-
 import spotipy
 
 import numpy as np
 import pandas as pd
+import streamlit as st
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
 from spotipy.oauth2 import SpotifyClientCredentials
-from dotenv import load_dotenv
-load_dotenv()
 
 class Scraper:
     
@@ -26,8 +23,8 @@ class Scraper:
     
     def __init__(self):
         client_credentials_manager = SpotifyClientCredentials(
-            client_id=os.getenv('CLIENT_ID'),
-            client_secret=os.getenv('CLIENT_SECRET')
+            client_id=st.secrets['CLIENT_ID'],
+            client_secret=st.secrets['CLIENT_SECRET']
         )
         self.sp = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
 
