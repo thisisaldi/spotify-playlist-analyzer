@@ -17,6 +17,8 @@ Spotify's Web API no longer exposes audio features (Nov 2024) or playlist items 
 
 ## API
 
+Full reference: [docs/API.md](docs/API.md).
+
 Both endpoints are `GET`, return JSON, send CORS headers, and are cached at Vercel's CDN for 6 hours. Errors return `{ "error": "..." }` with status 400/404/422/502.
 
 ### `GET /api/analyze?url=<playlist or album link>`
