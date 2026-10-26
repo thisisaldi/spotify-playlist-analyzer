@@ -1,8 +1,6 @@
-.streamlit
 .cache
-.env
-
-/__pycache__
-/spotify-venv
-
+.env*
+.vercel
+.venv
+__pycache__/
 *.ipynb

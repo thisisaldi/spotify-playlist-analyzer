@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Playlist Mood Analyzer</title>
+<meta name="description" content="Discover the mood of any public Spotify playlist, or find songs with the same vibe as one you love.">
+<style>
+  :root { --bg:#0f1115; --card:#181b21; --text:#e8eaed; --muted:#9aa0a6; --accent:#1ed760; --border:#2a2e36; --error:#ff6b6b; --seed:#8ab4f8; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f6f7f9; --card:#fff; --text:#1c1f24; --muted:#5f6368; --accent:#0a9b45; --border:#e2e5ea; --error:#c62828; --seed:#1a73e8; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:48px 16px; }
+  h1 { font-size:clamp(1.6rem, 4vw, 2.2rem); margin:0 0 8px; }
+  p.sub { color:var(--muted); margin:0 0 20px; }
+  .tabs { display:flex; gap:4px; margin-bottom:16px; border-bottom:1px solid var(--border); }
+  .tabs button { background:none; color:var(--muted); border-radius:0; border-bottom:2px solid transparent; padding:10px 14px; }
+  .tabs button[aria-selected="true"] { color:var(--text); border-bottom-color:var(--accent); }
+  form { display:flex; gap:8px; flex-wrap:wrap; }
+  input { flex:1 1 280px; min-width:0; padding:12px 14px; border-radius:10px; border:1px solid var(--border); background:var(--card); color:var(--text); font-size:1rem; }
+  button { padding:12px 20px; border:0; border-radius:10px; background:var(--accent); color:#000; font-weight:600; font-size:1rem; cursor:pointer; }
+  button:disabled { opacity:.6; cursor:wait; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:20px; margin-top:20px; }
+  .head { display:flex; gap:16px; align-items:center; }
+  .head img { width:88px; height:88px; border-radius:8px; object-fit:cover; flex-shrink:0; }
+  .head h2 { margin:0; font-size:1.25rem; }
+  a { color:inherit; }
+  .pill { display:inline-block; margin-top:6px; padding:2px 10px; border-radius:999px; background:var(--accent); color:#000; font-weight:600; font-size:.85rem; }
+  .muted { color:var(--muted); font-size:.9rem; }
+  .error { color:var(--error); margin-top:16px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:12px; }
+  .grid div { border:1px solid var(--border); border-radius:10px; padding:12px; }
+  .grid b { display:block; font-size:.8rem; color:var(--muted); font-weight:500; }
+  table { width:100%; border-collapse:collapse; }
+  td { padding:8px 0; border-bottom:1px solid var(--border); vertical-align:middle; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; padding-left:12px; }
+  .bar { height:6px; border-radius:3px; background:var(--accent); }
+  ol { margin:0; padding:0; list-style:none; }
+  ol li { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--border); cursor:pointer; }
+  ol li:last-child { border-bottom:0; }
+  ol li[aria-current="true"] { color:var(--accent); }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>What's the vibe?</h1>
+  <p class="sub">Analyze a playlist's mood, or find songs that feel like one you love.</p>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" data-mode="analyze" aria-selected="true">Playlist mood</button>
+    <button role="tab" data-mode="similar" aria-selected="false">Similar vibes</button>
+  </div>
+  <form id="form">
+    <input id="url" type="url" required aria-label="Spotify link">
+    <button id="go">Analyze</button>
+  </form>
+  <p id="error" class="error" role="alert" hidden></p>
+
+  <section id="analyze" hidden>
+    <div class="card head">
+      <img id="cover" alt="">
+      <div>
+        <h2><a id="name" target="_blank" rel="noopener"></a></h2>
+        <div id="owner" class="muted"></div>
+        <span id="mood" class="pill"></span>
+        <div id="coverage" class="muted"></div>
+      </div>
+    </div>
+    <div class="card"><canvas id="chart" role="img" aria-label="Mood radar chart"></canvas></div>
+    <div class="card"><table id="stats"></table><p class="muted" id="extra"></p></div>
+    <div class="card grid" id="highlights"></div>
+  </section>
+
+  <section id="similar" hidden>
+    <div class="card head">
+      <img id="s-cover" alt="">
+      <div>
+        <h2><a id="s-name" target="_blank" rel="noopener"></a></h2>
+        <div id="s-artist" class="muted"></div>
+        <div class="muted">Matched on audio features only: energy, mood, tempo, texture. No listening history.</div>
+      </div>
+    </div>
+    <div class="card"><canvas id="s-chart" role="img" aria-label="Seed vs match radar chart"></canvas>
+      <p class="muted">Tap a match to compare it with your song.</p></div>
+    <div class="card"><ol id="matches"></ol></div>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const MODES = {
+  analyze: { placeholder: "https://open.spotify.com/playlist/...", button: "Analyze" },
+  similar: { placeholder: "https://open.spotify.com/track/...", button: "Find similar" },
+};
+const RADAR = ["danceability", "energy", "speechiness", "acousticness", "instrumentalness", "liveness", "valence"];
+let mode = "analyze", charts = {};
+
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll("[role=tab]").forEach((t) => t.setAttribute("aria-selected", t.dataset.mode === m));
+  $("url").placeholder = MODES[m].placeholder; $("go").textContent = MODES[m].button;
+  $("analyze").hidden = $("similar").hidden = true; $("error").hidden = true;
+}
+
+function el(tag, text, cls) {
+  const e = document.createElement(tag);
+  if (text != null) e.textContent = text;
+  if (cls) e.className = cls;
+  return e;
+}
+
+function colors() {
+  const css = getComputedStyle(document.documentElement), v = (n) => css.getPropertyValue(n).trim();
+  return { accent: v("--accent"), seed: v("--seed"), grid: v("--border"), text: v("--text") };
+}
+
+function radar(id, labels, datasets) {
+  const c = colors();
+  charts[id]?.destroy();
+  charts[id] = new Chart($(id), {
+    type: "radar",
+    data: { labels, datasets: datasets.map((d) => ({ ...d, backgroundColor: d.borderColor + "33", pointBackgroundColor: d.borderColor })) },
+    options: {
+      plugins: { legend: { display: datasets.length > 1, labels: { color: c.text } } },
+      scales: { r: { min: 0, max: 1, ticks: { display: false, stepSize: 0.25 }, grid: { color: c.grid }, angleLines: { color: c.grid }, pointLabels: { color: c.text, font: { size: 12 } } } },
+    },
+  });
+}
+
+async function run(url) {
+  $("go").disabled = true; $("go").textContent = "Working…"; $("error").hidden = true;
+  try {
+    const res = await fetch(`/api/${mode}?url=${encodeURIComponent(url)}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Request failed");
+    (mode === "analyze" ? renderAnalyze : renderSimilar)(data);
+    history.replaceState(null, "", `?mode=${mode}&url=${encodeURIComponent(url)}`);
+  } catch (e) {
+    $(mode).hidden = true; $("error").textContent = e.message; $("error").hidden = false;
+  } finally {
+    $("go").disabled = false; $("go").textContent = MODES[mode].button;
+  }
+}
+
+function renderAnalyze(d) {
+  $("analyze").hidden = false;
+  $("cover").src = d.playlist.image || ""; $("cover").hidden = !d.playlist.image;
+  $("name").textContent = d.playlist.name; $("name").href = d.playlist.url;
+  $("owner").textContent = d.playlist.owner || "";
+  $("mood").textContent = d.mood;
+  $("coverage").textContent = `${d.analyzedCount} of ${d.trackCount} tracks analyzed`;
+
+  $("stats").replaceChildren(...d.features.map((f) => {
+    const tr = el("tr"), bar = el("div", null, "bar"), cell = el("td");
+    bar.style.width = f.value * 100 + "%"; cell.style.width = "40%"; cell.append(bar);
+    tr.append(el("td", f.label), cell, el("td", Math.round(f.value * 100) + "%", "num"));
+    return tr;
+  }));
+  $("extra").textContent = `Average tempo ${d.tempo} BPM · loudness ${d.loudness.toFixed(1)} dB`;
+
+  const names = { happiest: "Happiest", saddest: "Saddest", mostEnergetic: "Most energetic", mostDanceable: "Most danceable" };
+  $("highlights").replaceChildren(...Object.entries(d.highlights).map(([k, t]) => {
+    const div = el("div"); div.append(el("b", names[k]), el("span", t.title), el("div", t.artist, "muted"));
+    return div;
+  }));
+  radar("chart", d.features.map((f) => f.label), [{ label: "Playlist", data: d.features.map((f) => f.value), borderColor: colors().accent }]);
+}
+
+function renderSimilar(d) {
+  $("similar").hidden = false;
+  const s = d.seed, labels = RADAR.map((k) => d.labels[k]);
+  $("s-cover").src = s.image || ""; $("s-cover").hidden = !s.image;
+  $("s-name").textContent = s.title; $("s-name").href = s.url;
+  $("s-artist").textContent = s.artist;
+
+  const compare = (t, li) => {
+    document.querySelectorAll("#matches li").forEach((x) => x.removeAttribute("aria-current"));
+    li?.setAttribute("aria-current", "true");
+    const c = colors(), sets = [{ label: s.title, data: RADAR.map((k) => s.features[k]), borderColor: c.seed }];
+    if (t) sets.push({ label: t.title, data: RADAR.map((k) => t.features[k]), borderColor: c.accent });
+    radar("s-chart", labels, sets);
+  };
+
+  if (!d.tracks.length) $("matches").replaceChildren(el("li", "No close matches found."));
+  else $("matches").replaceChildren(...d.tracks.map((t) => {
+    const li = el("li"), info = el("div"), link = el("a", t.title);
+    link.href = t.url; link.target = "_blank"; link.rel = "noopener";
+    link.addEventListener("click", (e) => e.stopPropagation());
+    info.append(link, el("div", t.artist, "muted"));
+    li.append(info, el("span", t.similarity + "% match", "num"));
+    li.tabIndex = 0;
+    li.addEventListener("click", () => compare(t, li));
+    li.addEventListener("keydown", (e) => e.key === "Enter" && compare(t, li));
+    return li;
+  }));
+  compare(d.tracks[0], $("matches").firstElementChild);
+}
+
+document.querySelectorAll("[role=tab]").forEach((t) => t.addEventListener("click", () => setMode(t.dataset.mode)));
+$("form").addEventListener("submit", (e) => { e.preventDefault(); run($("url").value.trim()); });
+
+const params = new URLSearchParams(location.search);
+setMode(params.get("mode") === "similar" ? "similar" : "analyze");
+if (params.get("url")) { $("url").value = params.get("url"); run(params.get("url")); }
+</script>
+</body>
+</html>
