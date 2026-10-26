@@ -11,7 +11,6 @@ import urllib.error
 import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
 FEATURES = ["danceability", "energy", "speechiness", "acousticness", "instrumentalness", "liveness", "valence"]
@@ -106,35 +105,28 @@ def query(path, key, default=""):
     return parse_qs(urlparse(path).query).get(key, [default])[0]
 
 
-def make_handler(run):
-    """Wrap run(request_path) -> dict into a Vercel handler with JSON, CORS and CDN caching."""
+def send(h, status, body, cache=False):
+    payload = b"" if body is None else json.dumps(body).encode()
+    allowed = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",")]
+    origin = h.headers.get("Origin", "")
+    h.send_response(status)
+    h.send_header("Content-Type", "application/json")
+    h.send_header("Access-Control-Allow-Origin", "*" if "*" in allowed else (origin if origin in allowed else allowed[0]))
+    h.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+    h.send_header("Vary", "Origin")
+    # cache successful results at Vercel's CDN: repeat requests never hit upstream
+    h.send_header("Cache-Control", "public, s-maxage=21600, stale-while-revalidate=86400" if cache else "no-store")
+    h.send_header("Content-Length", str(len(payload)))
+    h.end_headers()
+    h.wfile.write(payload)
 
-    class Handler(BaseHTTPRequestHandler):
-        def _send(self, status, body, cache=False):
-            payload = b"" if body is None else json.dumps(body).encode()
-            allowed = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",")]
-            origin = self.headers.get("Origin", "")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*" if "*" in allowed else (origin if origin in allowed else allowed[0]))
-            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-            self.send_header("Vary", "Origin")
-            # cache successful results at Vercel's CDN: repeat requests never hit upstream
-            self.send_header("Cache-Control", "public, s-maxage=21600, stale-while-revalidate=86400" if cache else "no-store")
-            self.send_header("Content-Length", str(len(payload)))
-            self.end_headers()
-            self.wfile.write(payload)
 
-        def do_OPTIONS(self):
-            self._send(204, None)
-
-        def do_GET(self):
-            try:
-                self._send(200, run(self.path), cache=True)
-            except ApiError as e:
-                self._send(e.status, {"error": str(e)})
-            except Exception:
-                self._send(500, {"error": "Something went wrong"})
-
-    return Handler
-
+def serve(h, run):
+    """Run run(path) -> dict and write it as JSON. Vercel only detects functions that define
+    `class handler(BaseHTTPRequestHandler)` literally, so each endpoint file declares its own."""
+    try:
+        send(h, 200, run(h.path), cache=True)
+    except ApiError as e:
+        send(h, e.status, {"error": str(e)})
+    except Exception:
+        send(h, 500, {"error": "Something went wrong"})

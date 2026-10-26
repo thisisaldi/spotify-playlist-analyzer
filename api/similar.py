@@ -7,10 +7,11 @@ round seeds from the closest matches to pull the pool further toward the seed's 
 import math
 import os
 import sys
+from http.server import BaseHTTPRequestHandler
 from urllib.parse import quote
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _lib import FEATURES, LABELS, ApiError, analyze_audio, cover_url, get_entity, get_features, make_handler, parse_id, query, recco, spotify_id
+from _lib import FEATURES, LABELS, ApiError, analyze_audio, cover_url, get_entity, get_features, send, serve, parse_id, query, recco, spotify_id
 
 # How much each dimension shapes the "feel". Valence/energy dominate perceived mood.
 WEIGHTS = {
@@ -115,4 +116,9 @@ def run(path):
     return similar(query(path, "url"), limit)
 
 
-handler = make_handler(run)
+class handler(BaseHTTPRequestHandler):
+    def do_OPTIONS(self):
+        send(self, 204, None)
+
+    def do_GET(self):
+        serve(self, run)

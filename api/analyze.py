@@ -1,10 +1,11 @@
 """GET /api/analyze?url=<spotify playlist or album URL> -> mood profile JSON."""
 import os
 import sys
+from http.server import BaseHTTPRequestHandler
 from statistics import mean
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _lib import EXTRA, FEATURES, LABELS, ApiError, cover_url, get_entity, get_features, make_handler, parse_id, query, spotify_id
+from _lib import EXTRA, FEATURES, LABELS, ApiError, cover_url, get_entity, get_features, send, serve, parse_id, query, spotify_id
 
 
 def mood_label(valence, energy):
@@ -63,4 +64,9 @@ def analyze(url):
     return summarize(entity, get_features(ids))
 
 
-handler = make_handler(lambda path: analyze(query(path, "url")))
+class handler(BaseHTTPRequestHandler):
+    def do_OPTIONS(self):
+        send(self, 204, None)
+
+    def do_GET(self):
+        serve(self, lambda path: analyze(query(path, "url")))
